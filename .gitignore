@@ -32,3 +32,26 @@ node_modules/
 .DS_Store
 Thumbs.db
 *.log
+
+# Firebase server credentials and emulator data
+**/*firebase-adminsdk*.json
+**/*service-account*.json
+.firebase/
+.firebase-data/
+verification/output/
+
+# User uploads and local credentials
+**/data/
+secrets/
+credentials/
+*.zip
+
+# Temporary and backup files
+*.backup
+*.backup.*
+*.tmp
+*.temp
+*.orig
+*.rej
+*.swp
+*~

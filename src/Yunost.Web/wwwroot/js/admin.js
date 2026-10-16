@@ -1,182 +1,127 @@
-/* Фронтенд панели управления. До подключения Identity + SQL Server
-   доступны редактор и предпросмотр. Публикация, роли и начисления не имитируются.
-   Серверные права будут проверяться независимо от отображаемых кнопок. */
+/* Управление контентом: все изменения проходят проверку прав на сервере. */
 window.YunostAdmin = (() => {
   'use strict';
-  let helpers;
-  let attachments = [];
-  let editorType = 'news';
-  let activeRoute = '';
-  let generation = 0;
-  const maxFiles = 6;
-  const maxFileBytes = 5 * 1024 * 1024;
-  const zone = 'Asia/Novosibirsk';
-  const unavailable = 'Панель пока работает в режиме подготовки интерфейса. Изменения на сервер не отправлены. Подключение учётных записей и SQL Server — следующий этап.';
-  const dateText = date => new Intl.DateTimeFormat('ru-RU', {timeZone: zone, day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}).format(date);
-  const parseDate = value => value ? new Date(value + ':00+07:00') : null;
-  const toInput = date => {
-    const parts = new Intl.DateTimeFormat('sv-SE', {timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(date);
-    return parts.replace(' ', 'T');
-  };
-
-  function nav(route) {
-    const links = [['/manage','Публикации'],['/manage/rewards','Участие и яблоки'],['/manage/team','Команда и права'],['/manage/cleanup','Очистка']];
-    return `<nav class="manage-nav" aria-label="Управление сайтом">${links.map(([p,t])=>`<a href="#${p}" class="${p===route || (p==='/manage'&&route==='/manage/new')?'active':''}">${t}</a>`).join('')}<a href="#/" class="manage-back">На сайт ↗</a></nav><p class="manage-stage">Фронтенд панели · публикация, выдача прав и начисления станут доступны после подключения сервера и базы.</p>`;
-  }
-
-  function publications() {
-    const {icon,link} = helpers;
-    return `<div class="manage-heading"><div><span class="eyebrow">Управление «Юностью»</span><h1>Всё важное — в одной ленте.</h1><p>Новости, события и люди, которые делают их возможными.</p></div>${link('#/manage/new','Создать публикацию','button cyan','arrow')}</div><div class="manage-layout"><section class="panel publication-panel"><div class="post-status-tabs" role="group" aria-label="Статус публикаций">${['Опубликовано','Запланировано','Черновики','Истёкшие'].map((t,i)=>`<button type="button" data-post-status="${t}" aria-pressed="${i===0}">${t}</button>`).join('')}</div><div class="publication-empty"><div class="empty-symbol">${icon('calendar')}</div><h2 id="publication-list-title">Твои публикации будут здесь</h2><p id="publication-list-description">Список загрузится после подключения базы. Уже можно собрать публикацию и посмотреть, как она будет выглядеть на сайте.</p>${link('#/manage/new','Написать новость','button soft')}</div></section><aside class="manage-tips"><div class="panel"><span class="tag">Быстрое действие</span><h2>Есть повод встретиться?</h2><p>Создай мероприятие, укажи время и награду участникам в яблоках.</p>${link('#/manage/new?type=event','Создать мероприятие','button wide','calendar')}</div><div class="panel"><h3>Срок показа — у каждой записи</h3><p>Ты сама выбираешь дату. Когда срок пройдёт, запись исчезнет из ленты автоматически.</p>${link('#/manage/cleanup','Как работает очистка','text-link','arrow')}</div></aside></div>`;
-  }
-
-  function editor() {
-    editorType = new URLSearchParams(location.hash.split('?')[1] || '').get('type') === 'event' ? 'event' : 'news';
-    const {icon} = helpers;
-    return `<div class="manage-heading"><div><a class="back-link" href="#/manage">← К публикациям</a><h1>Поделись тем, что важно.</h1><p>Напиши текст, добавь фотографии. Остальное — в нескольких полях.</p></div><span class="timezone-badge">Время Новосибирска · UTC+7</span></div><div class="composer-layout"><form id="publication-form" class="panel composer"><div class="compose-type" role="group" aria-label="Тип публикации"><button type="button" data-compose-type="news" aria-pressed="${editorType==='news'}">${icon('heart')} Новость</button><button type="button" data-compose-type="event" aria-pressed="${editorType==='event'}">${icon('calendar')} Мероприятие</button></div><div class="field"><label for="post-title">Заголовок</label><input id="post-title" name="title" placeholder="О чём расскажем команде?" maxlength="120" required><span class="field-counter" id="title-counter">0 / 120</span></div><div class="field"><label for="post-body">Текст публикации</label><textarea id="post-body" name="body" rows="6" maxlength="5000" placeholder="Пиши так, как рассказываешь друзьям. Можно разделять текст на абзацы." required></textarea><span class="field-counter" id="body-counter">0 / 5000</span></div><div class="upload-zone"><label class="button soft" for="post-photos">+ Добавить фотографии</label><input type="file" id="post-photos" accept="image/jpeg,image/png,image/webp" multiple><p>До 6 фото · JPG, PNG или WebP · до 5 МБ каждое</p><div id="attachment-list" class="attachment-list"></div><p class="form-status" id="attachment-status" role="alert"></p></div><fieldset id="event-fields" class="event-fields"><legend>Подробности мероприятия</legend><div class="field-row"><div class="field"><label for="event-start">Начало</label><input id="event-start" name="startsAt" type="datetime-local" required></div><div class="field"><label for="event-end">Окончание</label><input id="event-end" name="endsAt" type="datetime-local" required></div></div><div class="field"><label for="event-place">Где встречаемся</label><input id="event-place" name="place" placeholder="Место и адрес" maxlength="250" required></div><div class="field-row"><div class="field"><label for="event-reward">Награда за участие, яблок</label><input id="event-reward" name="reward" type="number" min="0" max="5000" step="1" value="15" required></div><div class="field"><label for="event-capacity">Количество мест</label><input id="event-capacity" name="capacity" type="number" min="1" max="1000" step="1" value="20" required></div></div><p class="small-note">Яблоки получают подтверждённые участники. Один человек — одно начисление за мероприятие.</p></fieldset><div class="compose-settings"><div class="field"><label for="post-audience">Кому показать</label><select id="post-audience" name="audience"><option value="public">Всем посетителям сайта</option><option value="team">Только участникам отряда</option></select></div><div class="field"><label for="publication-start">Когда опубликовать</label><select id="publication-start" name="publishMode"><option value="now">Сразу после нажатия «Опубликовать»</option><option value="scheduled">Выбрать дату и время</option></select></div><div class="field" id="scheduled-field" hidden><label for="scheduled-at">Дата публикации</label><input id="scheduled-at" name="publishAt" type="datetime-local"></div><div class="field"><label for="post-lifetime">Сколько показывать в ленте</label><select id="post-lifetime" name="lifetime"><option value="1">1 день</option><option value="7" selected>7 дней</option><option value="30">30 дней</option><option value="custom">До выбранной даты</option></select></div><div class="field" id="expiry-field" hidden><label for="expires-at">Убрать из ленты</label><input id="expires-at" name="expiresAt" type="datetime-local"></div></div><p id="lifetime-summary" class="lifetime-summary"></p><p class="form-status" id="publish-status" role="alert"></p><div class="compose-actions"><button class="button" type="submit">Опубликовать ${icon('arrow')}</button><button class="button outline" type="button" data-admin-action="draft">Сохранить черновик</button></div><p class="small-note">Сейчас работает предпросмотр. Текст и фотографии остаются только в этой открытой форме, пока база не подключена.</p></form><aside class="composer-preview"><div class="preview-caption"><span>Так увидят публикацию</span><span class="tag">Предпросмотр</span></div><article class="live-post"><div class="post-author"><img src="assets/images/logo.webp" alt=""><div><strong>Педагогический отряд «Юность»</strong><span id="preview-published">После публикации</span></div></div><div class="live-post-content"><span class="tag" id="preview-type">Новость</span><h2 id="preview-title">Здесь будет твой заголовок</h2><p id="preview-body">А здесь — история, которой ты хочешь поделиться.</p></div><div id="preview-photos" class="preview-photos"></div><div id="preview-event" class="preview-event" hidden></div><div class="post-preview-footer"><span id="preview-audience">Всем посетителям</span><span id="preview-expiry">7 дней в ленте</span></div></article><div class="preview-help"><h3>Удобно и на телефоне</h3><p>Фотографии подстраиваются под ширину экрана, длинный текст переносится, а кнопки остаются удобными для нажатия.</p></div></aside></div>`;
-  }
-
-  function team() {
-    const {icon} = helpers;
-    return `<div class="manage-heading"><div><span class="eyebrow">Команда и права</span><h1>Нужный доступ — нужным людям.</h1><p>Ты назначаешь совладельца. Он помогает управлять администраторами и публикациями.</p></div></div><section class="panel owner-card"><span class="owner-avatar">АГ</span><div><span class="tag">Главный администратор проекта</span><h2>Гущина Алина Артемовна</h2><p>При запуске твоя учётная запись будет закреплена за владельцем. Совладелец и администраторы не смогут снять с тебя эту роль.</p></div><span class="protected-role">${icon('lock')} Защищённая роль</span></section><section class="role-grid"><article class="panel role-card"><div class="role-symbol">${icon('user')}</div><h2>Совладелец</h2><p>Помогает тебе вести сайт, назначает и снимает администраторов, работает с публикациями и мероприятиями.</p><ul><li>Назначаешь только ты</li><li>Не может менять владельца</li><li>Не может назначать другого совладельца</li></ul><button class="button wide" data-admin-action="add-coowner">Добавить совладельца</button></article><article class="panel role-card"><div class="role-symbol">${icon('calendar')}</div><h2>Администраторы</h2><p>Публикуют новости и мероприятия. Подтверждают участие и выдают награды за события, которые ведут.</p><ul><li>Назначаешь ты или совладелец</li><li>Работают со своими публикациями</li><li>Не выдают права другим людям</li></ul><button class="button soft wide" data-admin-action="add-admin">Добавить администратора</button></article></section><section class="panel team-list"><h2>Участники с доступом</h2><p>После подключения аккаунтов здесь появятся поиск по имени и почте, список ролей и кнопки изменения доступа. Назначать права можно будет существующим зарегистрированным пользователям.</p><div class="field section-space"><label for="team-search">Найти участника</label><input type="search" id="team-search" placeholder="Имя или электронная почта" disabled></div></section>`;
-  }
-
-  function rewards() {
-    const {icon,link} = helpers;
-    return `<div class="manage-heading"><div><span class="eyebrow">Участие и яблоки</span><h1>Замечаем вклад каждого.</h1><p>Выбери событие, отметь тех, кто участвовал, и подтверди начисление.</p></div>${link('#/manage/new?type=event','Создать мероприятие','button cyan','calendar')}</div><section class="panel rewards-panel"><div class="reward-step-row"><span><b>1</b> Выбрать мероприятие</span><span><b>2</b> Подтвердить участников</span><span><b>3</b> Начислить яблоки</span></div><div class="field"><label for="reward-event">Мероприятие</label><select id="reward-event" disabled><option>Список появится после подключения базы</option></select></div><div class="reward-empty">${icon('apple')}<h2>Здесь будет список участников</h2><p>Рядом с каждым — отметка участия, сумма награды и статус начисления. Уже оплаченные участия нельзя оплатить повторно.</p></div><div class="reward-total"><div><strong>К начислению: — яблок</strong><span>Сумма считается по выбранным подтверждённым участникам</span></div><button class="button" disabled>Начислить яблоки</button></div></section><section class="admin-rule-grid"><div class="panel"><h3>Без двойных начислений</h3><p>Повторное нажатие или обновление страницы не добавит яблоки второй раз. Это проверяет сервер.</p></div><div class="panel"><h3>История остаётся</h3><p>Даже когда афиша исчезнет из ленты, участие и начисление останутся в истории аккаунта.</p></div></section>`;
-  }
-
-  function cleanupPage() {
-    return `<div class="manage-heading"><div><span class="eyebrow">Порядок на сайте</span><h1>Срок прошёл — лента обновилась.</h1><p>Срок показа задаётся при публикации. Старые записи не нужно убирать вручную.</p></div></div><section class="cleanup-flow"><article class="panel"><span class="flow-number">01</span><h2>Убрать из ленты</h2><p>В выбранную дату запись перестаёт показываться посетителям и участникам. Проверка срока выполняется при загрузке ленты.</p></article><article class="panel"><span class="flow-number">02</span><h2>Дать время вернуть</h2><p>Запись попадает в истёкшие. Владелец или совладелец сможет продлить срок до окончательной очистки.</p></article><article class="panel"><span class="flow-number">03</span><h2>Освободить место</h2><p>Сервер удаляет тяжёлые файлы, которые больше нигде не используются. Учёт участия и яблок сохраняется отдельно.</p></article></section><form class="panel cleanup-settings" id="cleanup-form"><div><h2>Когда очищать файлы</h2><p>Пауза после исчезновения из ленты позволяет восстановить случайно просроченную публикацию.</p></div><div class="field"><label for="cleanup-delay">Время на восстановление</label><select id="cleanup-delay"><option value="1">1 день после окончания показа</option><option value="7" selected>7 дней после окончания показа</option><option value="30">30 дней после окончания показа</option></select></div><p class="small-note">Для мероприятий очистка ждёт завершения проверки участия и начислений. Файлы, используемые в других действующих публикациях, сохраняются.</p><p class="form-status" id="cleanup-status" role="alert"></p><button class="button" type="submit">Сохранить настройку</button><p class="small-note">Это проект настройки. Фоновая очистка заработает на сервере после подключения базы.</p></form>`;
-  }
-
-  function render(route, shared) {
-    helpers = shared; activeRoute = route;
-    const view = {'/manage':publications,'/manage/new':editor,'/manage/team':team,'/manage/rewards':rewards,'/manage/cleanup':cleanupPage}[route];
-    return nav(route) + (view ? view() : publications());
-  }
-
-  function expireDate(form) {
-    const scheduled = form.elements.publishMode.value === 'scheduled';
-    const published = scheduled ? parseDate(form.elements.publishAt.value) : new Date();
-    if (!published || !Number.isFinite(published.getTime())) return null;
-    return form.elements.lifetime.value === 'custom' ? parseDate(form.elements.expiresAt.value) : new Date(published.getTime()+Number(form.elements.lifetime.value)*86400000);
-  }
-
-  function syncPreview() {
-    const form = document.querySelector('#publication-form');
-    if (!form) return;
-    const {esc,icon} = helpers;
-    const value = name => form.elements[name].value.trim();
-    document.querySelector('#title-counter').textContent = `${value('title').length} / 120`;
-    document.querySelector('#body-counter').textContent = `${value('body').length} / 5000`;
-    document.querySelector('#preview-title').textContent = value('title') || 'Здесь будет твой заголовок';
-    document.querySelector('#preview-body').textContent = value('body') || 'А здесь — история, которой ты хочешь поделиться.';
-    document.querySelector('#preview-type').textContent = editorType === 'event' ? 'Мероприятие' : 'Новость';
-    document.querySelector('#preview-audience').textContent = value('audience') === 'team' ? 'Только отряду' : 'Всем посетителям';
-    const scheduled = value('publishMode') === 'scheduled';
-    document.querySelector('#scheduled-field').hidden = !scheduled;
-    form.elements.publishAt.required = scheduled;
-    const custom = value('lifetime') === 'custom';
-    document.querySelector('#expiry-field').hidden = !custom;
-    form.elements.expiresAt.required = custom;
-    const published = scheduled ? parseDate(value('publishAt')) : null;
-    document.querySelector('#preview-published').textContent = published && Number.isFinite(published.getTime()) ? dateText(published) : 'После публикации';
-    const expiry = expireDate(form);
-    document.querySelector('#lifetime-summary').textContent = expiry && Number.isFinite(expiry.getTime()) ? `Убрать из ленты: ${dateText(expiry)} · Новосибирск` : 'Выбери дату публикации и окончания показа.';
-    document.querySelector('#preview-expiry').textContent = custom ? 'До выбранной даты' : `${value('lifetime')} дн. в ленте`;
-    const event = document.querySelector('#preview-event');
-    event.hidden = editorType !== 'event';
-    const start = parseDate(value('startsAt'));
-    event.innerHTML = `<span>${icon('calendar')} ${start && Number.isFinite(start.getTime()) ? esc(dateText(start)) : 'Дата и время встречи'}</span><span>${esc(value('place') || 'Место встречи')}</span><div>${icon('apple')} +${esc(value('reward') || '0')} яблок за участие</div><button class="button soft wide" type="button" disabled>Участвовать</button>`;
-    document.querySelector('#preview-photos').innerHTML = attachments.map(a=>`<img src="${a.url}" alt="${esc(a.file.name)}">`).join('');
-    document.querySelector('#attachment-list').innerHTML = attachments.map((a,i)=>`<div class="attachment"><img src="${a.url}" alt=""><button type="button" data-remove-photo="${i}" aria-label="Удалить фото ${esc(a.file.name)}">×</button></div>`).join('');
-  }
-
-  function setType(type) {
-    editorType = type;
-    const fieldset = document.querySelector('#event-fields');
-    fieldset.hidden = type !== 'event'; fieldset.disabled = type !== 'event';
-    document.querySelectorAll('[data-compose-type]').forEach(b=>b.setAttribute('aria-pressed',String(b.dataset.composeType===type)));
-    syncPreview();
-  }
-
-  function mount(route) {
-    if (route !== '/manage/new') return;
-    const form = document.querySelector('#publication-form');
-    form.elements.publishAt.min = toInput(new Date());
-    form.elements.expiresAt.min = toInput(new Date());
-    setType(editorType);
-  }
-
-  function roleDialog(kind) {
-    const dialog = document.querySelector('#preview-dialog');
-    const coowner = kind === 'coowner';
-    dialog.innerHTML = `<button class="dialog-close" data-action="close-dialog" aria-label="Закрыть">${helpers.icon('close')}</button><div class="role-dialog"><span class="tag">Управление доступом</span><h2 id="dialog-title">${coowner?'Добавить совладельца':'Добавить администратора'}</h2><p>${coowner?'Выбери человека, которому доверяешь управление командой. Эту роль можешь выдать и снять только ты.':'Пользователь сможет создавать свои новости и мероприятия, подтверждать участие и начислять за него яблоки.'}</p><form id="role-form" class="form-fields"><div class="field"><label for="role-email">Почта зарегистрированного пользователя</label><input type="email" id="role-email" name="email" autocomplete="off" placeholder="name@example.com" maxlength="254" required></div><p class="small-note">На следующем этапе сервер найдёт аккаунт и покажет имя человека для подтверждения. Сейчас доступ никому не выдаётся.</p><p class="form-status" role="alert"></p><button class="button wide" type="submit">Найти пользователя</button></form></div>`;
-    dialog.showModal();
-  }
-
-  document.addEventListener('input', event => {
-    if (event.target.closest('#publication-form')) syncPreview();
-  });
-  document.addEventListener('change', async event => {
-    if (event.target.id !== 'post-photos') return;
-    const uploadGeneration = generation;
-    const status = document.querySelector('#attachment-status');
-    const messages=[];
-    for (const file of event.target.files) {
-      if (attachments.length >= maxFiles) {messages.push('Можно добавить не больше 6 фотографий.');break;}
-      if (!['image/jpeg','image/png','image/webp'].includes(file.type)) {messages.push(`${file.name}: выбери JPG, PNG или WebP.`);continue;}
-      if (file.size > maxFileBytes) {messages.push(`${file.name}: файл больше 5 МБ.`);continue;}
-      const url=URL.createObjectURL(file);
-      const img=new Image();img.src=url;
-      try {
-        await img.decode();
-        if (generation !== uploadGeneration) {URL.revokeObjectURL(url);return;}
-        attachments.push({file,url});
-      } catch {URL.revokeObjectURL(url);messages.push(`${file.name}: не удалось прочитать изображение.`);}
+  const api=window.YunostApi;
+  let h, route='', generation=0, items=[], cursor=null, editing=null, attachments=[];
+  const statuses={draft:'Черновик',published:'В ленте',deleting:'Удаляется'};
+  const registrationStatuses={registered:'Ждёт подтверждения',present:'Участвовал',absent:'Не пришёл',cancelled:'Запись отменена'};
+  const stamp=v=>new Intl.DateTimeFormat('ru-RU',{timeZone:'Asia/Novosibirsk',dateStyle:'medium',timeStyle:'short'}).format(new Date(v));
+  const toInput=v=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Novosibirsk',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(v)).replace(' ','T');
+  const fromInput=v=>{const d=new Date(v+':00+07:00');if(!Number.isFinite(+d))throw Error('Проверьте дату и время.');return d.toISOString();};
+  const field=(name,label,value='',type='text',extra='')=>`<div class="field"><label for="edit-${name}">${label}</label><input id="edit-${name}" name="${name}" type="${type}" value="${h.esc(value)}" ${extra}></div>`;
+  const select=(name,label,options)=>`<div class="field"><label for="edit-${name}">${label}</label><select id="edit-${name}" name="${name}">${options.map(([v,t])=>`<option value="${h.esc(v)}">${h.esc(t)}</option>`).join('')}</select></div>`;
+  const busy=()=>'<p class="loading-line" role="status">Загружаем…</p>';
+  const statusBadge=p=>p.state==='published'?(new Date(p.publishAt)>new Date()?'Запланировано':new Date(p.expiresAt)<=new Date()?'Срок истёк':'В ленте'):statuses[p.state];
+  function render(path,shared) {
+    h=shared;route=path;items=[];cursor=null;editing=null;attachments=[];
+    let content='';
+    if(path==='/manage/new'||path.startsWith('/manage/edit/'))content=h.intro('Редактор','История начинается здесь.','Добавь текст, фотографии и срок показа. Время указывается по Новосибирску (UTC+7).')+'<div id="admin-content">'+busy()+'</div>';
+    else if(path==='/manage/products/new'||path.startsWith('/manage/products/edit/'))content=h.intro('Магазин','Новый образ Фыр-Фырыча.','Добавь фотографию вещи, выбери её 3D-форму и цвет для примерки.')+'<div id="admin-content">'+busy()+'</div>';
+    else if(path==='/manage/cleanup')content=h.intro('Порядок на сайте','Срок прошёл — лента обновилась.','Пост скрывается в выбранное время. Сервер затем удаляет запись и неиспользуемые фотографии.')+'<section class="panel settings-panel" id="admin-content">'+busy()+'</section>';
+    else if(path==='/manage/rewards')content=h.intro('Участие и яблоки','Каждый вклад имеет значение.','После окончания встречи отметь, кто участвовал. Награду за одно участие можно получить только один раз.')+'<section class="panel" id="admin-content">'+busy()+'</section>';
+    else if(path.startsWith('/manage/participants/'))content=h.intro('Участники мероприятия','Были вместе. Сделали вместе.')+'<section class="panel" id="admin-content">'+busy()+'</section>';
+    else {
+      const products=path==='/manage/products';
+      content=`<div class="manage-heading"><div><span class="eyebrow">Управление «Юностью»</span><h1>${products?'Коллекция для ёжика.':'Всё важное — в одной ленте.'}</h1><p>${window.YunostAccount.user.role==='admin'?'Здесь твои записи.':'Здесь записи всей команды сайта.'}</p></div>${h.link(products?'#/manage/products/new':'#/manage/new',products?'Добавить вещь':'Создать публикацию','button cyan','arrow')}</div><section class="panel" id="admin-content">${busy()}</section>`;
     }
-    if (!document.contains(status)) return;
-    status.textContent=messages.join(' ');
-    event.target.value='';syncPreview();
-  });
-  document.addEventListener('click', event => {
-    const b=event.target.closest('button');if(!b)return;
-    if (b.dataset.composeType) setType(b.dataset.composeType);
-    if (b.dataset.removePhoto !== undefined) {
-      const index=Number(b.dataset.removePhoto);if(attachments[index])URL.revokeObjectURL(attachments[index].url);
-      attachments.splice(index,1);syncPreview();
-    }
-    if (b.dataset.adminAction==='add-coowner') roleDialog('coowner');
-    if (b.dataset.adminAction==='add-admin') roleDialog('admin');
-    if (b.dataset.adminAction==='draft') document.querySelector('#publish-status').textContent='Сохранение черновика в базе ещё не подключено. Текст не сохранён; пока не закрывай эту форму.';
-    if(b.dataset.postStatus){
-      document.querySelectorAll('[data-post-status]').forEach(el=>el.setAttribute('aria-pressed',String(el===b)));
-      document.querySelector('#publication-list-title').textContent=b.dataset.postStatus;
-      document.querySelector('#publication-list-description').textContent='Этот список загрузится после подключения базы данных.';
-    }
-  });
-  document.addEventListener('submit', event => {
-    const form=event.target;
-    if (!['publication-form','role-form','cleanup-form'].includes(form.id))return;
-    event.preventDefault();
-    const status=form.querySelector('.form-status');
-    if(form.id==='publication-form'){
-      const expiry=expireDate(form);
-      const published=form.elements.publishMode.value==='scheduled'?parseDate(form.elements.publishAt.value):new Date();
-      const errors=[];
-      if(!form.elements.title.value.trim() || !form.elements.body.value.trim())errors.push('Заполни заголовок и текст.');
-      if(form.elements.publishMode.value==='scheduled' && (!published || published<=new Date()))errors.push('Время публикации должно быть в будущем.');
-      if(!expiry || !Number.isFinite(expiry.getTime()) || !published || expiry<=published)errors.push('Окончание показа должно быть позже публикации.');
-      if(editorType==='event'){
-        const start=parseDate(form.elements.startsAt.value),end=parseDate(form.elements.endsAt.value);
-        if(!start || !end || end<=start)errors.push('Окончание мероприятия должно быть позже начала.');
-        if(start && published && start<published)errors.push('Мероприятие должно начинаться после публикации.');
-        if(end && expiry && expiry<end)errors.push('Показывай мероприятие как минимум до его окончания.');
+    return window.YunostAccount.adminNav(path)+content;
+  }
+  const alive=(token,node)=>token===generation&&document.contains(node);
+  async function mount(path) {
+    const token=++generation,node=document.querySelector('#admin-content');if(!node)return;
+    try {
+      if(path==='/manage/new') {editing={id:crypto.randomUUID().replaceAll('-',''),version:0};node.innerHTML=editor();wireEditor();return;}
+      if(path.startsWith('/manage/edit/')) {const p=await api.request('manage/posts/'+path.split('/').pop());if(!alive(token,node))return;editing=p;attachments=p.mediaIds.map((id,i)=>({id,url:p.photos[i]}));node.innerHTML=editor(p);wireEditor(p);return;}
+      if(path==='/manage/products/new'){editing={id:crypto.randomUUID().replaceAll('-',''),version:0};node.innerHTML=productEditor();window.YunostForms.mount(node);return;}
+      if(path.startsWith('/manage/products/edit/')) {const data=await api.request('manage/products');if(!alive(token,node))return;editing=data.items.find(p=>p.id===path.split('/').pop());if(!editing)throw Error('Вещь не найдена или нет права на изменение.');node.innerHTML=productEditor(editing);const f=node.querySelector('form');f.elements.category.value=editing.category;f.elements.slot.value=editing.slot;f.elements.modelKey.value=editing.modelKey;window.YunostForms.mount(node);return;}
+      if(path==='/manage/cleanup') {
+        const settings=await api.request('manage/cleanup');if(!alive(token,node))return;
+        node.innerHTML=`<form id="cleanup-form" class="form-fields"><h2>Время на восстановление</h2><p>После истечения срока запись скрыта. Пока не прошла эта пауза, её можно открыть в публикациях и продлить срок.</p>${select('retentionDays','Удалять запись и фотографии после окончания показа',[['0','Сразу, при ближайшей очистке'],['1','Через 1 день'],['7','Через 7 дней'],['30','Через 30 дней']])}<p class="small-note">Проверка выполняется каждую минуту, пока сервер запущен. Участие и история яблок сохраняются. Неотмеченные участники остаются в разделе «Участие и яблоки» даже после удаления афиши.</p><p class="form-status" role="alert"></p>${settings.canEdit?'<div class="form-actions"><button type="submit" class="button">Сохранить</button><button type="button" class="button outline" data-admin-action="cleanup">Очистить сейчас</button></div>':'<p>Эту настройку меняют владелец и совладелец.</p>'}</form>`;
+        node.querySelector('select').value=settings.retentionDays;node.querySelector('select').disabled=!settings.canEdit;window.YunostForms.mount(node);return;
       }
-      document.querySelector('#publish-status').textContent=errors.length?errors.join(' '):unavailable;
-    } else if(form.id==='role-form')status.textContent='Поиск аккаунтов и выдача ролей будут доступны после подключения сервера. Права не изменены.';
-    else document.querySelector('#cleanup-status').textContent='Настройка пока не сохранена. Фоновая очистка будет подключена на сервере вместе с базой.';
+      await loadList(false);
+    } catch(error){if(alive(token,node))node.innerHTML=`<p class="form-status" role="alert">${h.esc(error.message)}</p><button class="button soft" data-admin-action="retry">Попробовать снова</button>`;}
+  }
+  async function loadList(append=false){
+    const token=generation,node=document.querySelector('#admin-content');if(!node)return;
+    const endpoint=route==='/manage/products'?'manage/products':route==='/manage/rewards'?'manage/events':route.startsWith('/manage/participants/')?'manage/events/'+route.split('/').pop()+'/participants':'manage/posts';
+    const data=await api.request(endpoint+'?cursor='+encodeURIComponent(append?cursor||'':''));if(!alive(token,node))return;
+    items=append?[...items,...data.items]:data.items;cursor=data.nextCursor;
+    let html='';
+    if(route==='/manage/products') html=items.map(p=>`<article class="content-row"><img class="row-image" src="${h.esc(p.imageUrl)}" alt=""><div><span class="tag">${h.esc(p.category)}</span><h2>${h.esc(p.title)}</h2><p>${p.price} яблок</p></div><div class="row-actions">${h.link('#/manage/products/edit/'+p.id,'Изменить','button soft compact')}<button class="button outline compact" data-remove-product="${p.id}">Удалить</button></div></article>`).join('');
+    else if(route==='/manage/rewards') html=items.map(e=>`<article class="content-row"><div><span class="tag">${e.cancelled?'Отменено':e.pending?'Ждут отметки: '+e.pending:'Все отметки выставлены'}</span><h2>${h.esc(e.title)}</h2><p>${stamp(e.endsAt)} · Награда ${e.reward} яблок</p></div>${h.link('#/manage/participants/'+e.id,'Участники','button soft compact')}</article>`).join('');
+    else if(route.startsWith('/manage/participants/')){
+      const e=data.eventInfo;editing=e;
+      html=`<div class="section-space"><h2>${h.esc(e.title)}</h2><p>${stamp(e.startsAt)} — ${stamp(e.endsAt)}</p><p>Оплата за запись: ${e.cost} яблок. Награда за участие: ${e.reward} яблок.</p>${new Date(e.endsAt)>new Date()?'<p class="small-note">Отметки откроются после окончания мероприятия.</p>':''}</div>`+items.map(p=>`<article class="content-row"><div><h3>${h.esc(p.fullName)}</h3><p>${registrationStatuses[p.status]} · ${p.reward} яблок за участие</p></div>${p.status==='registered'&&!e.cancelled&&new Date(e.endsAt)<=new Date()?`<div class="row-actions"><button class="button compact" data-attend="${p.userId}" data-decision="present">Участвовал · +${p.reward}</button><button class="button outline compact" data-attend="${p.userId}" data-decision="absent">Не пришёл</button></div>`:''}</article>`).join('');
+    } else html=items.map(p=>`<article class="content-row">${p.photos[0]?`<img class="row-image" src="${h.esc(p.photos[0])}" alt="">`:''}<div><span class="tag">${statusBadge(p)} · ${p.type==='event'?'Мероприятие':'Новость'} · ${p.audience==='team'?'Отряду':'Всем'}</span><h2>${h.esc(p.title)}</h2><p>${stamp(p.publishAt)} → ${stamp(p.expiresAt)}</p></div><div class="row-actions">${h.link('#/manage/edit/'+p.id,'Изменить','button soft compact')}<button class="button outline compact" data-remove-post="${p.id}">Удалить</button></div></article>`).join('');
+    node.innerHTML=(html||'<div class="empty-state"><h2>Пока ничего нет.</h2><p>Новые записи появятся здесь.</p></div>')+`<p class="form-status" id="admin-status" role="alert"></p>${cursor?'<button class="button soft" data-admin-action="more">Показать ещё</button>':''}`;
+  }
+  function editor(p={}){
+    const e=p.eventInfo||{},now=Date.now();
+    return `<div class="composer-layout"><form id="publication-form" class="panel composer form-fields">${select('type','Что публикуем',[['news','Новость'],['event','Мероприятие']])}${field('title','Заголовок',p.title||'','text','required minlength="3" maxlength="180"')}<div class="field"><label for="post-body">Текст публикации</label><textarea id="post-body" name="body" rows="7" required maxlength="12000" placeholder="Расскажи, что происходит…">${h.esc(p.body||'')}</textarea></div><div class="upload-zone"><label for="post-photos" class="button soft">Добавить фотографии</label><input id="post-photos" type="file" accept="image/png,image/jpeg,image/webp" multiple hidden><p>До 6 фотографий, каждая до 5 МБ. Можно убрать лишнее перед сохранением.</p><div id="attachment-list" class="attachment-list"></div></div>${select('audience','Кто увидит запись',[['public','Все посетители'],['team','Только участники отряда']])}<div class="event-fields" id="event-fields"><h3>Мероприятие</h3><div class="field-row">${field('startsAt','Начало',toInput(e.startsAt||now+86400000),'datetime-local')}${field('endsAt','Окончание',toInput(e.endsAt||now+90000000),'datetime-local')}</div>${field('place','Где встречаемся',e.place||'','text','maxlength="300"')}<div class="field-row">${field('capacity','Количество мест',e.capacity||30,'number','min="1" max="1000" step="1"')}${field('cost','Стоимость записи в яблоках',e.cost||0,'number','min="0" max="100000" step="1"')}${field('reward','Награда за участие',e.reward||0,'number','min="0" max="100000" step="1"')}</div><p class="small-note">0 яблок — бесплатная запись. Награда начисляется после твоего подтверждения участия.</p>${e.everBooked?'<p class="small-note">Участники уже записались. Условия мероприятия закреплены; текст и фотографии можно обновлять.</p>':''}</div><div class="field-row">${field('publishAt','Показать с',toInput(p.publishAt||now),'datetime-local','required')}${field('expiresAt','Убрать из ленты',toInput(p.expiresAt||now+7*86400000),'datetime-local','required')}</div><p class="small-note">Время — Новосибирск, UTC+7. Будущая дата автоматически запланирует публикацию.</p><p class="form-status" role="alert"></p><div class="form-actions"><button type="submit" name="saveState" value="published" class="button">${p.version?'Сохранить и опубликовать':'Опубликовать'}</button><button type="submit" name="saveState" value="draft" class="button outline" ${e.everBooked?'disabled':''}>Сохранить черновик</button></div></form><aside class="composer-preview"><span class="preview-label">Так увидят участники</span><article class="panel live-post"><span class="tag">Юность · это по любви</span><h2 id="live-title">Здесь будет заголовок</h2><p id="live-body" class="post-text">Твоя история</p><div id="live-images" class="post-gallery"></div><p id="live-event" class="small-note"></p></article></aside></div>`;
+  }
+  function wireEditor(p={}){
+    const f=document.querySelector('#publication-form');f.elements.type.value=p.type||'news';f.elements.type.disabled=!!p.version;f.elements.audience.value=p.audience||'public';
+    if(p.eventInfo?.everBooked)for(const key of ['startsAt','endsAt','place','capacity','cost','reward','audience','publishAt'])f.elements[key].disabled=true;
+    syncPreview();window.YunostForms.mount(f);
+  }
+  function syncPreview(){
+    const f=document.querySelector('#publication-form');if(!f)return;
+    const isEvent=f.elements.type.value==='event';document.querySelector('#event-fields').hidden=!isEvent;
+    for(const key of ['startsAt','endsAt','place','capacity','cost','reward'])f.elements[key].required=isEvent;
+    document.querySelector('#live-title').textContent=f.elements.title.value||'Здесь будет заголовок';document.querySelector('#live-body').textContent=f.elements.body.value||'Твоя история';
+    document.querySelector('#live-event').textContent=isEvent?`Запись: ${f.elements.cost.value||0} яблок · За участие: ${f.elements.reward.value||0} яблок`:'';
+    document.querySelector('#live-images').innerHTML=attachments.map(a=>`<img src="${h.esc(a.url)}" alt="Фотография к публикации">`).join('');
+    document.querySelector('#attachment-list').innerHTML=attachments.map((a,i)=>`<div class="attachment-thumb"><img src="${h.esc(a.url)}" alt="Фото ${i+1}"><button type="button" data-remove-photo="${i}" aria-label="Убрать фото ${i+1}">×</button></div>`).join('');
+  }
+  function productEditor(p={}){
+    return `<form id="product-form" class="panel form-fields settings-panel">${field('title','Название',p.title||'','text','required minlength="2" maxlength="120"')}${field('tag','Короткая подпись',p.tag||'','text','maxlength="100"')}<div class="field-row">${field('price','Цена в яблоках',p.price??90,'number','required min="0" max="100000" step="1"')}${select('category','Категория',[['Головные уборы','Головные уборы'],['Аксессуары','Аксессуары'],['Одежда','Одежда']])}</div>${select('modelKey','3D-форма',[['panama','Панама'],['beanie','Шапка с помпоном'],['glasses','Очки'],['tie','Галстук'],['scarf','Шарф'],['hoodie','Худи']])}${field('color','Цвет ткани',p.color||'#75b4dd','color')}${select('slot','Тип вещи',[['head','Головной убор'],['eyes','Очки'],['neck','Шарф или галстук'],['body','Одежда']])}<div class="product-upload-grid">${[['image','Картинка вещи',p.imageUrl],['outfit','Дополнительная иллюстрация (необязательно)',p.outfitId?p.outfitUrl:null]].map(([n,t,url])=>`<div class="field"><label for="product-${n}">${t}</label>${url?`<img class="upload-preview" src="${h.esc(url)}" alt="${t}">`:''}<input id="product-${n}" name="${n}" type="file" accept="image/png,image/jpeg,image/webp" ${!p.version&&n==='image'?'required':''}></div>`).join('')}</div><p class="small-note">PNG, JPEG или WebP до 5 МБ. Фотография — для карточки. В примерке используется выбранная объёмная форма. Можно создавать новые расцветки; для принципиально новой формы потребуется добавить 3D-модель.</p><p class="form-status" role="alert"></p><button class="button" type="submit">Сохранить вещь</button></form>`;
+  }
+  function checkFile(file){if(!['image/png','image/jpeg','image/webp'].includes(file.type)||file.size>5*1024*1024)throw Error('Выбери PNG, JPEG или WebP до 5 МБ.');}
+  document.addEventListener('input',event=>{if(event.target.closest('#publication-form'))syncPreview();});
+  document.addEventListener('change',async event=>{
+    const input=event.target;
+    if(input.name==='modelKey'&&input.closest('#product-form')){const f=input.form;f.elements.slot.value={panama:'head',beanie:'head',glasses:'eyes',tie:'neck',scarf:'neck',hoodie:'body'}[input.value];f.elements.category.value=['panama','beanie'].includes(input.value)?'Головные уборы':input.value==='hoodie'?'Одежда':'Аксессуары';}
+    if(input.id==='post-photos'){
+      try{if(attachments.length+input.files.length>6)throw Error('К записи можно добавить до 6 фотографий.');for(const f of input.files)checkFile(f);for(const file of input.files)attachments.push({file,url:URL.createObjectURL(file)});syncPreview();}
+      catch(e){h.toast(e.message);}input.value='';
+    }
+    if(input.type==='file'&&input.closest('#product-form')&&input.files[0]){
+      try{checkFile(input.files[0]);let img=input.parentElement.querySelector('img');if(!img){img=document.createElement('img');img.className='upload-preview';input.before(img);}if(img.dataset.objectUrl)URL.revokeObjectURL(img.dataset.objectUrl);img.src=URL.createObjectURL(input.files[0]);img.dataset.objectUrl=img.src;}
+      catch(e){input.value='';h.toast(e.message);}
+    }
   });
-  function cleanup(){generation++;attachments.forEach(a=>URL.revokeObjectURL(a.url));attachments=[];}
-  return Object.freeze({render,mount,cleanup});
+  document.addEventListener('submit',async event=>{
+    const form=event.target;if(!['publication-form','product-form','cleanup-form'].includes(form.id))return;event.preventDefault();
+    const status=form.querySelector('.form-status'),buttons=[...form.querySelectorAll('button[type="submit"]')];buttons.forEach(b=>b.disabled=true);status.textContent='Сохраняем…';
+    try{
+      const value=n=>form.elements[n].value;
+      if(form.id==='publication-form'){
+        for(const a of attachments)if(!a.id){status.textContent='Загружаем фотографии…';a.id=(await api.upload(a.file)).id;}
+        const data={title:value('title'),body:value('body'),type:value('type'),audience:value('audience'),state:event.submitter?.value||'draft',publishAt:fromInput(value('publishAt')),expiresAt:fromInput(value('expiresAt')),mediaIds:attachments.map(a=>a.id),version:editing.version,
+          startsAt:fromInput(value('startsAt')),endsAt:fromInput(value('endsAt')),place:value('place'),capacity:Number(value('capacity')),cost:Number(value('cost')),reward:Number(value('reward'))};
+        await api.send('manage/posts/'+editing.id,data,'PUT');h.toast(data.state==='draft'?'Черновик сохранён.':'Публикация сохранена.');location.hash='/manage';
+      } else if(form.id==='product-form'){
+        const ids={image:editing.imageId||'',outfit:editing.outfitId||''};
+        for(const key of ['image','outfit']){const input=form.elements[key];if(input.files[0]){checkFile(input.files[0]);ids[key]=(await api.upload(input.files[0])).id;}}
+        await api.send('manage/products/'+editing.id,{title:value('title'),tag:value('tag'),price:Number(value('price')),category:value('category'),slot:value('slot'),modelKey:value('modelKey'),color:value('color'),imageId:ids.image,outfitId:ids.outfit,version:editing.version},'PUT');document.dispatchEvent(new Event('yunost:catalog-updated'));h.toast('Вещь сохранена в магазине.');location.hash='/manage/products';
+      } else {await api.send('manage/cleanup',{retentionDays:Number(value('retentionDays'))},'PUT');status.textContent='Настройка сохранена.';}
+    }catch(error){status.textContent=error.message;}finally{buttons.forEach(b=>b.disabled=false);}
+  });
+  document.addEventListener('click',async event=>{
+    const b=event.target.closest('button');if(!b)return;
+    if(b.dataset.removePhoto!==undefined){const a=attachments.splice(Number(b.dataset.removePhoto),1)[0];if(a.file)URL.revokeObjectURL(a.url);syncPreview();return;}
+    if(!b.dataset.adminAction&&!b.dataset.removePost&&!b.dataset.removeProduct&&!b.dataset.attend)return;
+    b.disabled=true;
+    try{
+      if(b.dataset.adminAction==='retry')await mount(route);
+      if(b.dataset.adminAction==='more')await loadList(true);
+      if(b.dataset.adminAction==='cleanup'){await api.send('manage/cleanup/run');h.toast('Очистка завершена.');}
+      if(b.dataset.removePost&&confirm('Удалить публикацию? Записанным участникам отменённого мероприятия вернутся потраченные яблоки.')){await api.send('manage/posts/'+b.dataset.removePost,{},'DELETE');h.toast('Публикация снята. Очистка и возвраты продолжатся на сервере.');await loadList();}
+      if(b.dataset.removeProduct&&confirm('Удалить вещь из магазина? Купленные экземпляры останутся в гардеробах.')){await api.send('manage/products/'+b.dataset.removeProduct,{},'DELETE');document.dispatchEvent(new Event('yunost:catalog-updated'));await loadList();}
+      if(b.dataset.attend&&confirm(b.dataset.decision==='present'?'Подтвердить участие и начислить награду?':'Отметить, что участник не пришёл? Награда не будет начислена.')){await api.send(`manage/events/${editing.id}/participants/${b.dataset.attend}`,{decision:b.dataset.decision});h.toast('Отметка сохранена.');await loadList();}
+    }catch(error){h.toast(error.message);}finally{b.disabled=false;}
+  });
+  function cleanup(){generation++;for(const a of attachments)if(a.file)URL.revokeObjectURL(a.url);document.querySelectorAll('[data-object-url]').forEach(i=>URL.revokeObjectURL(i.dataset.objectUrl));attachments=[];}
+  return {render,mount,cleanup};
 })();

@@ -1,0 +1,26 @@
+name: yunost
+services:
+  web:
+    build: .
+    ports:
+    - 127.0.0.1:5080:8080
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      Supabase__Url: ${SUPABASE_URL:?Укажите Project URL}
+      Supabase__PublishableKey: ${SUPABASE_PUBLISHABLE_KEY:?Укажите publishable key}
+      Supabase__SecretKeyFile: /run/secrets/supabase_secret
+      DataProtection__Path: /app/data/keys
+    secrets:
+    - supabase_secret
+    volumes:
+    - session_keys:/app/data
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+secrets:
+  supabase_secret:
+    file: ${SUPABASE_SECRET_FILE:?Укажите файл secret key вне проекта}
+volumes:
+  session_keys: null

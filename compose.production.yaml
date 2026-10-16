@@ -1,0 +1,52 @@
+name: yunost
+services:
+  web:
+    build: .
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      AllowedHosts: ${SITE_DOMAIN:?Укажите домен сайта}
+      ReverseProxy__KnownProxies__0: 172.29.77.10
+      Supabase__Url: ${SUPABASE_URL:?Укажите Project URL}
+      Supabase__PublishableKey: ${SUPABASE_PUBLISHABLE_KEY:?Укажите publishable key}
+      Supabase__SecretKeyFile: /run/secrets/supabase_secret
+      DataProtection__Path: /app/data/keys
+    secrets:
+    - supabase_secret
+    volumes:
+    - session_keys:/app/data
+    networks:
+    - appnet
+    restart: unless-stopped
+    security_opt:
+    - no-new-privileges:true
+    cap_drop:
+    - ALL
+  caddy:
+    image: caddy:2
+    ports:
+    - 80:80
+    - 443:443
+    environment:
+      SITE_DOMAIN: ${SITE_DOMAIN:?Укажите домен сайта}
+    volumes:
+    - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    - caddy_data:/data
+    - caddy_config:/config
+    networks:
+      appnet:
+        ipv4_address: 172.29.77.10
+    depends_on:
+    - web
+    restart: unless-stopped
+secrets:
+  supabase_secret:
+    file: ${SUPABASE_SECRET_FILE:?Укажите файл secret key вне проекта}
+volumes:
+  caddy_data: null
+  caddy_config: null
+  session_keys: null
+networks:
+  appnet:
+    ipam:
+      config:
+      - subnet: 172.29.77.0/24
