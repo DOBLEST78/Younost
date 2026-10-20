@@ -349,14 +349,10 @@ let pendingRegistrationCredentials = null;
         </div>
 
         <div class="reference-message">
-          <span class="tag">Детские мечты сбываются</span>
-          <h1>Юность —<br>это по любви.</h1>
+          
+        
           <h2>Воплощаем в реальность детские мечты.</h2>
 
-          <p>
-            Дружба, творчество и люди, которые рядом.<br>
-            Создаём моменты, к которым хочется возвращаться.
-          </p>
 
           ${!isLoggedIn ? `
             <div class="hero-actions">
