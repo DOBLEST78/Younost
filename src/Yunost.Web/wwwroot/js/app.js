@@ -344,7 +344,7 @@ let pendingRegistrationCredentials = null;
     return `
       <section class="reference-hero">
         <div class="reference-caption">
-          <h2>Здесь начинается<br>твоё лучшее лето.</h2>
+          <h1>Здесь начинается<br>твоё лучшее лето.</h1>
           <p>Педагогический отряд «Юность»</p>
         </div>
 
