@@ -354,12 +354,7 @@ let pendingRegistrationCredentials = null;
           <h2>Воплощаем в реальность детские мечты.</h2>
 
 
-          ${!isLoggedIn ? `
-            <div class="hero-actions">
-              ${mainButton}
-              ${link('#/about', 'Узнать о нас', 'button white')}
-            </div>
-          ` : ''}
+          
         </div>
       </section>
 
