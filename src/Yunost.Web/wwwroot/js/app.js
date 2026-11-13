@@ -354,12 +354,7 @@ let pendingRegistrationCredentials = null;
           <h2>Воплощаем в реальность детские мечты.</h2>
 
 
-          ${!isLoggedIn ? `
-            <div class="hero-actions">
-              ${mainButton}
-              ${link('#/about', 'Узнать о нас', 'button white')}
-            </div>
-          ` : ''}
+          
         </div>
       </section>
 
@@ -1494,6 +1489,28 @@ let pendingRegistrationCredentials = null;
               ? 'История яблок'
               : 'Страница не найдена'
     } — Юность`;
+
+        // Запрещаем индексацию закрытых страниц
+    const privatePage =
+      adminRoute ||
+      personalRoute ||
+      accountRoutes.includes(route) ||
+      route === '/auth' ||
+      route === '/register';
+
+    let robotsMeta = document.querySelector('meta[name="robots"]');
+
+    if (privatePage) {
+      if (!robotsMeta) {
+        robotsMeta = document.createElement('meta');
+        robotsMeta.name = 'robots';
+        document.head.appendChild(robotsMeta);
+      }
+
+      robotsMeta.content = 'noindex, nofollow';
+    } else if (robotsMeta) {
+      robotsMeta.remove();
+    }
 
     main.innerHTML = (
       account.user?.membershipStatus === 'accepted' &&

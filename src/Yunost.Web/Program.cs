@@ -94,6 +94,16 @@ app.Use(async (context, next) =>
     }
     await next();
 });
+
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path.StartsWithSegments("/api"))
+    {
+        context.Response.Headers["X-Robots-Tag"] = "noindex, nofollow";
+    }
+
+    await next();
+});
 app.UseDefaultFiles();
 app.UseStaticFiles();
 app.UseRateLimiter();
