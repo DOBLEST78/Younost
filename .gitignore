@@ -55,3 +55,6 @@ credentials/
 *.rej
 *.swp
 *~
+
+# Local HTTPS certificates
+/deploy/certs/
